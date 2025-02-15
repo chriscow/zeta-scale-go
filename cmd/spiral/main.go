@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/cmplx"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -77,7 +78,9 @@ func calculateSpiralPartialSums(s complex128) (complex128, []complex128) {
 	}
 	println("N", N)
 
-	// Figure out how many chunks we need
+	// numWorkers := runtime.NumCPU()
+	// // Figure out how many chunks we need
+	// numChunks := (N + numWorkers - 1) / numWorkers
 	numChunks := (N + ChunkSize - 1) / ChunkSize
 
 	// Prepare slices to hold each chunk's result
@@ -153,9 +156,8 @@ func calculateSingleThreadedPartialSums(s complex128, numLinks int) []complex128
 }
 
 // plotLinks creates and saves a PNG of the link path plus a crosshair at zeta
-func plotLinks(links []complex128, zeta complex128, outputFile string, pointsOnly bool) {
-	const numWorkers = 24   // Number of goroutines
-	const outputSize = 2048 // Final output image width and height
+func plotLinks(links []complex128, outputSize int, outputFile string, pointsOnly bool) {
+	numWorkers := runtime.NumCPU() // Number of goroutines
 
 	// Determine the min and max for x and y across all links.
 	minX, maxX := real(links[0]), real(links[0])
@@ -393,7 +395,10 @@ func downsampleComplex(links []complex128, outputSize int, aggressiveness float6
 	// At aggressiveness=3.0: 2% spread (very aggressive)
 	// At aggressiveness=3.5: 3% spread (extremely aggressive)
 	// At aggressiveness=4.0: 5% spread (maximum)
-	maxRelativeSpread := 0.0001 * math.Pow(5, aggressiveness)
+	maxRelativeSpread := 0.0001 // Base threshold at 0.01%
+	if aggressiveness > 0.0 {
+		maxRelativeSpread *= math.Pow(5, aggressiveness)
+	}
 
 	// Add extra smoothing for values between 3.5 and 4.0 to avoid the cliff
 	if aggressiveness > 3.5 {
@@ -403,7 +408,10 @@ func downsampleComplex(links []complex128, outputSize int, aggressiveness float6
 	}
 
 	// Also consider pixel-space proximity for grouping
-	pixelSpreadThreshold := 1.0 + (aggressiveness * 2.0) // 1.0 to 9.0 pixels
+	pixelSpreadThreshold := 1.0 // Base threshold at 1.0 pixels
+	if aggressiveness > 0.0 {
+		pixelSpreadThreshold += (aggressiveness * 2.0) // 1.0 to 9.0 pixels
+	}
 
 	if debug {
 		log.Printf("Using maxRelativeSpread=%e based on aggressiveness=%.2f", maxRelativeSpread, aggressiveness)
@@ -561,6 +569,7 @@ func main() {
 	downsampleFlag := flag.Bool("downsample", false, "Enable downsampling of links")
 	aggressiveness := flag.Float64("aggressive", 0.5, "Downsampling aggressiveness (0.0-1.0)")
 	outputFile := flag.String("output", "combined_links.png", "Output filename for the image")
+	outputSize := flag.Int("size", 2048, "Output image size in pixels")
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
 	pointsOnlyFlag := flag.Bool("points", false, "Draw points only, no lines")
 	flag.Parse()
@@ -579,9 +588,8 @@ func main() {
 	// Downsample if the flag is set
 	if *downsampleFlag {
 		// Use the same resolution as the final output image.
-		pixelResolution := 2048
 		before := len(multiThreadedLinks)
-		multiThreadedLinks = downsampleComplex(multiThreadedLinks, pixelResolution, *aggressiveness, *debugFlag)
+		multiThreadedLinks = downsampleComplex(multiThreadedLinks, *outputSize, *aggressiveness, *debugFlag)
 		after := len(multiThreadedLinks)
 
 		// Calculate downsampling statistics
@@ -612,7 +620,7 @@ func main() {
 	start = time.Now()
 	println("\nPlotting multi-threaded links")
 	multiThreadedLinks = append([]complex128{complex(0, 0)}, multiThreadedLinks...)
-	plotLinks(multiThreadedLinks, result, *outputFile, *pointsOnlyFlag) // Pass the points-only flag
+	plotLinks(multiThreadedLinks, *outputSize, *outputFile, *pointsOnlyFlag) // Pass the points-only flag
 	elapsed = time.Since(start)
 	fps = 1.0 / elapsed.Seconds()
 	fmt.Printf("Time taken: %v FPS: %.2f\n", elapsed, fps)

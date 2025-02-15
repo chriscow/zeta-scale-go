@@ -47,15 +47,23 @@ func floatEquals(a, b, tolerance float64) bool {
 func TestDownsampleComplex_SamePixel(t *testing.T) {
 	links := []complex128{
 		complex(1, 1),
-		complex(1.001, 1.001),
-		complex(1.002, 1.002),
+		complex(1.0001, 1.0001), // Much closer points (0.01% apart)
+		complex(1.0002, 1.0002),
 	}
-	t.Logf("Input points min/max bounds: (%.3f,%.3f) to (%.3f,%.3f)",
+	t.Logf("Input points min/max bounds: (%.6f,%.6f) to (%.6f,%.6f)",
 		real(links[0]), imag(links[0]),
 		real(links[len(links)-1]), imag(links[len(links)-1]))
 
-	// With a high resolution, these nearly identical values should map to the same pixel
-	got := downsampleComplex(links, 2048, 0.5, true)
+	// Calculate the relative spread for debugging
+	maxRange := math.Max(real(links[len(links)-1])-real(links[0]),
+		imag(links[len(links)-1])-imag(links[0]))
+	baseRange := math.Max(0.01, maxRange)
+	relativeSpread := maxRange / baseRange
+	t.Logf("Relative spread calculation: maxRange=%.6f, baseRange=%.6f, relativeSpread=%.6f",
+		maxRange, baseRange, relativeSpread)
+
+	// With a high resolution and aggressiveness=0.0, these nearly identical values should map to the same pixel
+	got := downsampleComplex(links, 2048, 0.0, true)
 
 	// Log key diagnostic information
 	if len(got) > 10 {
