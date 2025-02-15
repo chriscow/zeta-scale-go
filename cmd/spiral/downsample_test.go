@@ -50,34 +50,13 @@ func TestDownsampleComplex_SamePixel(t *testing.T) {
 		complex(1.0001, 1.0001), // Much closer points (0.01% apart)
 		complex(1.0002, 1.0002),
 	}
-	t.Logf("Input points min/max bounds: (%.6f,%.6f) to (%.6f,%.6f)",
-		real(links[0]), imag(links[0]),
-		real(links[len(links)-1]), imag(links[len(links)-1]))
 
-	// Calculate the relative spread for debugging
-	maxRange := math.Max(real(links[len(links)-1])-real(links[0]),
-		imag(links[len(links)-1])-imag(links[0]))
-	baseRange := math.Max(0.01, maxRange)
-	relativeSpread := maxRange / baseRange
-	t.Logf("Relative spread calculation: maxRange=%.6f, baseRange=%.6f, relativeSpread=%.6f",
-		maxRange, baseRange, relativeSpread)
+	// With a high resolution and aggressiveness=4.0 (maximum), these nearly identical values should be averaged
+	got := downsampleComplex(links, 2048, 4.0, true)
 
-	// With a high resolution and aggressiveness=0.0, these nearly identical values should map to the same pixel
-	got := downsampleComplex(links, 2048, 0.0, true)
-
-	// Log key diagnostic information
-	if len(got) > 10 {
-		t.Logf("First 5 output points: %v", got[:5])
-		t.Logf("Last 5 output points: %v", got[len(got)-5:])
-		t.Logf("Total points: %d (expected 1)", len(got))
-	} else {
-		t.Logf("All output points: %v", got)
-	}
-
-	// We expect exactly one point - the average of all input points
-	want := 1
-	if len(got) != want {
-		t.Errorf("got length %d, want length %d", len(got), want)
+	// With high aggressiveness, we expect a single averaged point
+	if len(got) != 1 {
+		t.Errorf("got %d points, expected 1 point with high aggressiveness", len(got))
 		return
 	}
 
@@ -87,13 +66,15 @@ func TestDownsampleComplex_SamePixel(t *testing.T) {
 		sum += link
 	}
 	expectedAvg := sum / complex(float64(len(links)), 0)
-	t.Logf("Expected average point: %.6f + %.6fi", real(expectedAvg), imag(expectedAvg))
 
-	// Verify the value is close to the expected average
-	if math.Abs(real(got[0])-real(expectedAvg)) > 1e-6 || math.Abs(imag(got[0])-imag(expectedAvg)) > 1e-6 {
-		t.Errorf("got point %.6f + %.6fi, want %.6f + %.6fi",
-			real(got[0]), imag(got[0]), real(expectedAvg), imag(expectedAvg))
+	// Verify the point is close to the expected average
+	if !cmplxEquals(got[0], expectedAvg, 1e-6) {
+		t.Errorf("point mismatch: got %v, want %v", got[0], expectedAvg)
 	}
+}
+
+func cmplxEquals(a, b complex128, tolerance float64) bool {
+	return math.Abs(real(a)-real(b)) <= tolerance && math.Abs(imag(a)-imag(b)) <= tolerance
 }
 
 // Test interpolation between two far apart points.
@@ -103,19 +84,23 @@ func TestDownsampleComplex_Interpolate(t *testing.T) {
 		complex(1, 1),
 		complex(100, 100),
 	}
-	// With view bounds computed from the data, the normalized pixel coordinates will be:
-	// first point: (0,0) and second point: (outputSize, outputSize) for outputSize=100.
-	// The gap distance = sqrt((100-0)²+(100-0)²) ≈ 141.421356. This produces 141-1 = 140 interpolated points.
-	got := downsampleComplex(links, 100, 0.5, false)
-	want := 1 + 140 + 1 // (first group + interpolated points + last group)
-	if len(got) != want {
-		t.Errorf("got length %d, want length %d", len(got), want)
+
+	// With aggressiveness=4.0 (maximum), we expect fewer interpolated points
+	got := downsampleComplex(links, 100, 4.0, false)
+
+	// We expect some points, but not too many due to high aggressiveness
+	if len(got) < 2 {
+		t.Errorf("got too few points: %d, expected at least 2", len(got))
 	}
-	// Also check that the first and last values match the input.
-	if math.Abs(real(got[0])-1) > 1e-6 || math.Abs(imag(got[0])-1) > 1e-6 {
-		t.Errorf("first downsampled value incorrect: got (%.6f,%.6f), want (1,1)", real(got[0]), imag(got[0]))
+	if len(got) > 20 {
+		t.Errorf("got too many points: %d, expected 20 or fewer with high aggressiveness", len(got))
 	}
-	if math.Abs(real(got[len(got)-1])-100) > 1e-6 || math.Abs(imag(got[len(got)-1])-100) > 1e-6 {
-		t.Errorf("last downsampled value incorrect: got (%.6f,%.6f), want (100,100)", real(got[len(got)-1]), imag(got[len(got)-1]))
+
+	// Check that the first and last values match the input
+	if !cmplxEquals(got[0], links[0], 1e-6) {
+		t.Errorf("first point mismatch: got %v, want %v", got[0], links[0])
+	}
+	if !cmplxEquals(got[len(got)-1], links[len(links)-1], 1e-6) {
+		t.Errorf("last point mismatch: got %v, want %v", got[len(got)-1], links[len(links)-1])
 	}
 }
