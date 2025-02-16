@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"flag"
 	"fmt"
 	"image/color"
@@ -17,9 +18,12 @@ import (
 
 	"image"
 
+	pb "zeta-scale-go/proto"
+
 	"github.com/golang/freetype/truetype"
 	"github.com/llgcode/draw2d"
 	"github.com/llgcode/draw2d/draw2dimg"
+	"google.golang.org/protobuf/proto"
 )
 
 // Constants for the Euler-Maclaurin summation
@@ -872,6 +876,7 @@ func main() {
 	outputSize := flag.Int("size", 2048, "Output image size in pixels")
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
 	pointsOnlyFlag := flag.Bool("points", false, "Draw points only, no lines")
+	saveProtoFlag := flag.String("save-proto", "", "Save spiral data to protobuf file (optional)")
 	flag.Parse()
 
 	// Set MaxN from the command-line flag
@@ -884,6 +889,9 @@ func main() {
 
 	// Multi-threaded
 	result, multiThreadedLinks := calculateSpiralPartialSums(s)
+
+	// Store original links before downsampling
+	originalLinks := multiThreadedLinks
 
 	// Downsample if the flag is set
 	if *downsampleFlag {
@@ -921,6 +929,15 @@ func main() {
 	fps := 1.0 / elapsed.Seconds()
 	fmt.Printf("Time taken: %v FPS: %.2f\n", elapsed, fps)
 
+	// Save protobuf data if requested
+	if *saveProtoFlag != "" {
+		if err := saveSpiralProtobuf(originalLinks, multiThreadedLinks, s, *maxN, *downsampleFlag, *aggressiveness, *saveProtoFlag); err != nil {
+			log.Printf("Error saving protobuf data: %v", err)
+		} else {
+			log.Printf("Saved spiral data to %s", *saveProtoFlag)
+		}
+	}
+
 	// Plot
 	// prepend a 0,0 link to the multi-threaded links
 	start = time.Now()
@@ -930,4 +947,116 @@ func main() {
 	elapsed = time.Since(start)
 	fps = 1.0 / elapsed.Seconds()
 	fmt.Printf("Time taken: %v FPS: %.2f\n", elapsed, fps)
+}
+
+func saveSpiralProtobuf(originalLinks, downsampledLinks []complex128, s complex128, maxN int, isDownsampled bool, aggressiveness float64, filename string) error {
+	// Create the protobuf message
+	spiral := &pb.Spiral{
+		Version:  1,
+		RealPart: real(s),
+		ImagPart: imag(s),
+		MaxN:     int64(maxN),
+
+		IsDownsampled:            isDownsampled,
+		DownsampleAggressiveness: aggressiveness,
+	}
+
+	// Calculate bounds
+	links := downsampledLinks
+	if !isDownsampled {
+		links = originalLinks
+	}
+
+	minX, maxX := real(links[0]), real(links[0])
+	minY, maxY := imag(links[0]), imag(links[0])
+	for _, link := range links {
+		x := real(link)
+		y := imag(link)
+		if x < minX {
+			minX = x
+		}
+		if x > maxX {
+			maxX = x
+		}
+		if y < minY {
+			minY = y
+		}
+		if y > maxY {
+			maxY = y
+		}
+	}
+
+	spiral.MinX = minX
+	spiral.MaxX = maxX
+	spiral.MinY = minY
+	spiral.MaxY = maxY
+
+	// If the number of points is small or we want full precision, use full precision encoding
+	if len(links) < 1000 || !isDownsampled {
+		points := make([]*pb.ComplexPoint, len(links))
+		for i, link := range links {
+			points[i] = &pb.ComplexPoint{
+				Real: real(link),
+				Imag: imag(link),
+			}
+		}
+		spiral.PointsEncoding = &pb.Spiral_FullPoints{
+			FullPoints: &pb.FullPrecisionPoints{
+				Points: points,
+			},
+		}
+	} else {
+		// Use delta encoding for efficiency
+		startPoint := &pb.ComplexPoint{
+			Real: real(links[0]),
+			Imag: imag(links[0]),
+		}
+
+		// Calculate scale factors based on the range of values
+		rangeX := maxX - minX
+		rangeY := maxY - minY
+		scaleX := float64(math.MaxInt32) / rangeX * 0.9 // Use 90% of int32 range
+		scaleY := float64(math.MaxInt32) / rangeY * 0.9
+
+		deltas := make([]*pb.DeltaPoint, len(links)-1)
+		for i := 1; i < len(links); i++ {
+			dx := int32((real(links[i]) - real(links[i-1])) * scaleX)
+			dy := int32((imag(links[i]) - imag(links[i-1])) * scaleY)
+			deltas[i-1] = &pb.DeltaPoint{
+				Dx: dx,
+				Dy: dy,
+			}
+		}
+
+		spiral.PointsEncoding = &pb.Spiral_DeltaPoints{
+			DeltaPoints: &pb.DeltaEncodedPoints{
+				StartPoint: startPoint,
+				ScaleX:     scaleX,
+				ScaleY:     scaleY,
+				Deltas:     deltas,
+			},
+		}
+	}
+
+	// Serialize the protobuf message
+	data, err := proto.Marshal(spiral)
+	if err != nil {
+		return fmt.Errorf("failed to marshal protobuf: %v", err)
+	}
+
+	// Compress with gzip
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %v", err)
+	}
+	defer file.Close()
+
+	gzw := gzip.NewWriter(file)
+	defer gzw.Close()
+
+	if _, err := gzw.Write(data); err != nil {
+		return fmt.Errorf("failed to write compressed data: %v", err)
+	}
+
+	return nil
 }

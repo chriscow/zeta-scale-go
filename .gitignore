@@ -6,3 +6,8 @@
 **/*.bmp
 **/*.tiff
 **/*.ico
+vendor
+proto
+bin/
+*.pb
+*.pb.go

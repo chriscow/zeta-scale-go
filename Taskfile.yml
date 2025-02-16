@@ -1,0 +1,54 @@
+version: '3'
+
+tasks:
+  default:
+    cmds:
+      - task: run
+
+  proto:
+    desc: Generate protobuf files
+    cmds:
+      - protoc --go_out=. proto/spiral.proto
+      - go mod tidy
+      - go mod vendor
+
+  build:
+    desc: Build the spiral generator
+    deps: [proto]
+    cmds:
+      - go build -o bin/spiral cmd/spiral/main.go
+
+  run:
+    desc: Run the spiral generator with default settings
+    deps: [build]
+    cmds:
+      - ./bin/spiral -imag=6300000.0 -output=spiral.png -save-proto=spiral.pb
+
+  run-downsampled:
+    desc: Run with default downsampling
+    deps: [build]
+    cmds:
+      - ./bin/spiral -imag=6300000.0 -output=spiral_downsampled.png -save-proto=spiral_downsampled.pb -downsample=true -aggressive=0.5
+
+  run-aggressive:
+    desc: Run with aggressive downsampling
+    deps: [build]
+    cmds:
+      - ./bin/spiral -imag=6300000.0 -output=spiral_aggressive.png -save-proto=spiral_aggressive.pb -downsample=true -aggressive=4.0
+
+  clean:
+    desc: Clean build artifacts and generated files
+    cmds:
+      - rm -f bin/spiral
+      - rm -f spiral.png spiral_downsampled.png spiral_aggressive.png
+      - rm -f spiral.pb spiral_downsampled.pb spiral_aggressive.pb
+      - rm -rf vendor/
+      - rm -f proto/spiral.pb.go
+
+  generate-all:
+    desc: Generate all spiral variants
+    deps: [build]
+    cmds:
+      - task: run
+      - task: run-downsampled
+      - task: run-aggressive 

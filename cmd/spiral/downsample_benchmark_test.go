@@ -2,9 +2,14 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 	"math"
 	"math/cmplx"
+	"runtime"
 	"testing"
+
+	"github.com/llgcode/draw2d/draw2dimg"
 )
 
 // generateTestLinks creates a spiral of complex points for testing
@@ -293,4 +298,132 @@ func formatInt(n int) string {
 
 func formatFloat(f float64) string {
 	return fmt.Sprintf("%.1f", f)
+}
+
+func BenchmarkFullPipelineFPS(b *testing.B) {
+	// Set up parameters matching the target scenario
+	imagPart := 65_000_000.0
+	s := complex(0.5, imagPart)
+	outputSize := 2048
+	aggressiveness := 4.0
+
+	// Ensure we're using all CPU cores
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Calculate spiral (already parallel)
+		_, links := calculateSpiralPartialSums(s)
+
+		// Downsample using parallel version
+		links = downsampleComplex(links, outputSize, aggressiveness, false)
+
+		// Create a dummy image (we don't actually save it in the benchmark)
+		img := image.NewRGBA(image.Rect(0, 0, outputSize, outputSize))
+		gc := draw2dimg.NewGraphicContext(img)
+		gc.SetStrokeColor(color.White)
+		gc.SetLineWidth(0.5)
+
+		// Plot points (simplified version of plotLinks)
+		minX, maxX := real(links[0]), real(links[0])
+		minY, maxY := imag(links[0]), imag(links[0])
+		for _, link := range links {
+			x := real(link)
+			y := imag(link)
+			if x < minX {
+				minX = x
+			}
+			if x > maxX {
+				maxX = x
+			}
+			if y < minY {
+				minY = y
+			}
+			if y > maxY {
+				maxY = y
+			}
+		}
+
+		// Draw the links
+		first := true
+		for _, link := range links {
+			normalizedX := (real(link) - minX) / (maxX - minX) * float64(outputSize)
+			normalizedY := (imag(link) - minY) / (maxY - minY) * float64(outputSize)
+			finalY := float64(outputSize) - normalizedY
+
+			if first {
+				gc.MoveTo(normalizedX, finalY)
+				first = false
+			} else {
+				gc.LineTo(normalizedX, finalY)
+			}
+		}
+		gc.Stroke()
+	}
+
+	// Report FPS
+	fps := float64(b.N) / b.Elapsed().Seconds()
+	b.ReportMetric(fps, "fps")
+}
+
+func BenchmarkFullPipelineFPSNoDownsample(b *testing.B) {
+	// Set up parameters matching the target scenario
+	imagPart := 65_000_000.0
+	s := complex(0.5, imagPart)
+	outputSize := 2048
+
+	// Ensure we're using all CPU cores
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Calculate spiral (already parallel)
+		_, links := calculateSpiralPartialSums(s)
+
+		// Create a dummy image (we don't actually save it in the benchmark)
+		img := image.NewRGBA(image.Rect(0, 0, outputSize, outputSize))
+		gc := draw2dimg.NewGraphicContext(img)
+		gc.SetStrokeColor(color.White)
+		gc.SetLineWidth(0.5)
+
+		// Plot points (simplified version of plotLinks)
+		minX, maxX := real(links[0]), real(links[0])
+		minY, maxY := imag(links[0]), imag(links[0])
+		for _, link := range links {
+			x := real(link)
+			y := imag(link)
+			if x < minX {
+				minX = x
+			}
+			if x > maxX {
+				maxX = x
+			}
+			if y < minY {
+				minY = y
+			}
+			if y > maxY {
+				maxY = y
+			}
+		}
+
+		// Draw the links
+		first := true
+		for _, link := range links {
+			normalizedX := (real(link) - minX) / (maxX - minX) * float64(outputSize)
+			normalizedY := (imag(link) - minY) / (maxY - minY) * float64(outputSize)
+			finalY := float64(outputSize) - normalizedY
+
+			if first {
+				gc.MoveTo(normalizedX, finalY)
+				first = false
+			} else {
+				gc.LineTo(normalizedX, finalY)
+			}
+		}
+		gc.Stroke()
+	}
+
+	// Report FPS
+	fps := float64(b.N) / b.Elapsed().Seconds()
+	b.ReportMetric(fps, "fps")
 }
