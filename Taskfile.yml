@@ -36,19 +36,48 @@ tasks:
     cmds:
       - ./bin/spiral -imag=6300000.0 -output=spiral_aggressive.png -save-proto=spiral_aggressive.pb -downsample=true -aggressive=4.0
 
+  compare-compression:
+    desc: Generate and compare different compression methods
+    deps: [build]
+    cmds:
+      # Generate full spiral with all compression methods
+      - ./bin/spiral -imag=6300000.0 -output=spiral_full.png 
+        -save-proto=spiral_full.pb 
+        -save-delta=spiral_full.delta 
+        -save-msgpack=spiral_full.msgpack
+      # Generate downsampled spiral with all compression methods
+      - ./bin/spiral -imag=6300000.0 -output=spiral_downsampled.png 
+        -save-proto=spiral_downsampled.pb 
+        -save-delta=spiral_downsampled.delta 
+        -save-msgpack=spiral_downsampled.msgpack 
+        -downsample=true -aggressive=0.5
+      # Generate aggressively downsampled spiral with all compression methods
+      - ./bin/spiral -imag=6300000.0 -output=spiral_aggressive.png 
+        -save-proto=spiral_aggressive.pb 
+        -save-delta=spiral_aggressive.delta 
+        -save-msgpack=spiral_aggressive.msgpack 
+        -downsample=true -aggressive=4.0
+      # Compare file sizes
+      - |
+        echo "Compression size comparison:"
+        echo "Full spiral:"
+        ls -lh spiral_full.{pb,delta,msgpack} | awk '{print $5, $9}'
+        echo "\nDownsampled spiral:"
+        ls -lh spiral_downsampled.{pb,delta,msgpack} | awk '{print $5, $9}'
+        echo "\nAggressively downsampled spiral:"
+        ls -lh spiral_aggressive.{pb,delta,msgpack} | awk '{print $5, $9}'
+
   clean:
     desc: Clean build artifacts and generated files
     cmds:
       - rm -f bin/spiral
-      - rm -f spiral.png spiral_downsampled.png spiral_aggressive.png
-      - rm -f spiral.pb spiral_downsampled.pb spiral_aggressive.pb
+      - rm -f spiral*.png
+      - rm -f spiral*.pb spiral*.delta spiral*.msgpack
       - rm -rf vendor/
       - rm -f proto/spiral.pb.go
 
   generate-all:
-    desc: Generate all spiral variants
+    desc: Generate all spiral variants with all compression methods
     deps: [build]
     cmds:
-      - task: run
-      - task: run-downsampled
-      - task: run-aggressive 
+      - task: compare-compression 

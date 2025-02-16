@@ -18,6 +18,8 @@ import (
 
 	"image"
 
+	"zeta-scale-go/pkg/compression"
+
 	pb "zeta-scale-go/proto"
 
 	"github.com/golang/freetype/truetype"
@@ -877,6 +879,8 @@ func main() {
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
 	pointsOnlyFlag := flag.Bool("points", false, "Draw points only, no lines")
 	saveProtoFlag := flag.String("save-proto", "", "Save spiral data to protobuf file (optional)")
+	saveDeltaFlag := flag.String("save-delta", "", "Save spiral data using delta compression (optional)")
+	saveMsgPackFlag := flag.String("save-msgpack", "", "Save spiral data using MessagePack (optional)")
 	flag.Parse()
 
 	// Set MaxN from the command-line flag
@@ -929,17 +933,48 @@ func main() {
 	fps := 1.0 / elapsed.Seconds()
 	fmt.Printf("Time taken: %v FPS: %.2f\n", elapsed, fps)
 
-	// Save protobuf data if requested
+	// Save data in different formats if requested
 	if *saveProtoFlag != "" {
+		start := time.Now()
 		if err := saveSpiralProtobuf(originalLinks, multiThreadedLinks, s, *maxN, *downsampleFlag, *aggressiveness, *saveProtoFlag); err != nil {
 			log.Printf("Error saving protobuf data: %v", err)
 		} else {
-			log.Printf("Saved spiral data to %s", *saveProtoFlag)
+			elapsed := time.Since(start)
+			log.Printf("Saved spiral data to %s (took %v)", *saveProtoFlag, elapsed)
+		}
+	}
+
+	if *saveDeltaFlag != "" {
+		start := time.Now()
+		compressed, err := compression.CompressWithDelta(multiThreadedLinks)
+		if err != nil {
+			log.Printf("Error compressing with delta encoding: %v", err)
+		} else {
+			if err := compression.SaveDeltaCompressed(compressed, *saveDeltaFlag); err != nil {
+				log.Printf("Error saving delta compressed data: %v", err)
+			} else {
+				elapsed := time.Since(start)
+				log.Printf("Saved delta compressed data to %s (took %v)", *saveDeltaFlag, elapsed)
+			}
+		}
+	}
+
+	if *saveMsgPackFlag != "" {
+		start := time.Now()
+		compressed, err := compression.CompressWithMsgPack(multiThreadedLinks)
+		if err != nil {
+			log.Printf("Error compressing with MessagePack: %v", err)
+		} else {
+			if err := compression.SaveMsgPack(compressed, *saveMsgPackFlag); err != nil {
+				log.Printf("Error saving MessagePack data: %v", err)
+			} else {
+				elapsed := time.Since(start)
+				log.Printf("Saved MessagePack data to %s (took %v)", *saveMsgPackFlag, elapsed)
+			}
 		}
 	}
 
 	// Plot
-	// prepend a 0,0 link to the multi-threaded links
 	start = time.Now()
 	println("\nPlotting multi-threaded links")
 	multiThreadedLinks = append([]complex128{complex(0, 0)}, multiThreadedLinks...)
