@@ -6,8 +6,9 @@
 **/*.bmp
 **/*.tiff
 **/*.ico
+**/*.pb
+**/*.pb.go
+**/*.msgpack
 vendor
 proto
 bin/
-*.pb
-*.pb.go
